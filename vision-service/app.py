@@ -10,7 +10,7 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from pydantic import BaseModel
 
 
@@ -58,6 +58,12 @@ def download(url, out_path):
         f.write(response.read())
 
 
+def analyze_local_path(path, media_type="image"):
+    if media_type in ("video", "mp4", "mov", "avi"):
+        return analyze_video(path)
+    return analyze_image(path)
+
+
 def analyze_downloaded(url, media_type="image"):
     if not url:
         return None
@@ -65,9 +71,7 @@ def analyze_downloaded(url, media_type="image"):
     try:
         with os.fdopen(fd, "wb"):
             download(url, tmp_path)
-        if media_type in ("video", "mp4", "mov", "avi"):
-            return analyze_video(tmp_path)
-        return analyze_image(tmp_path)
+        return analyze_local_path(tmp_path, media_type)
     except Exception:
         return None
     finally:
@@ -121,6 +125,36 @@ def analyze_simple(
     _auth: None = Depends(require_token),
 ):
     reference = analyze_downloaded(image_url, media_type)
+    if not reference:
+        reference = insufficient_reference()
+    reference["diseaseKey"] = disease_key
+    reference["patientId"] = patient_id
+    return reference
+
+
+@app.post("/analyze_upload")
+def analyze_upload(
+    image_file: UploadFile = File(...),
+    media_type: str = Form("image"),
+    patient_id: str = Form(""),
+    disease_key: str = Form("facialPalsy"),
+    surgery_date: str = Form(""),
+    _auth: None = Depends(require_token),
+):
+    suffix = ".mp4" if media_type in ("video", "mp4", "mov", "avi") else ".jpg"
+    fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+    reference = None
+    try:
+        with os.fdopen(fd, "wb") as out:
+            out.write(image_file.file.read())
+        reference = analyze_local_path(tmp_path, media_type)
+    except Exception:
+        reference = None
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
     if not reference:
         reference = insufficient_reference()
     reference["diseaseKey"] = disease_key
