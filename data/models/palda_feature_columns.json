@@ -1,0 +1,23 @@
+[
+  "brow_height_asymmetry",
+  "brow_asymmetry_signed",
+  "abs_brow_signed",
+  "left_brow_height",
+  "right_brow_height",
+  "eye_closure_ratio",
+  "left_eye_aperture",
+  "right_eye_aperture",
+  "eye_aperture_asymmetry",
+  "mouth_corner_displacement",
+  "mouth_corner_displacement_signed",
+  "abs_mouth_signed",
+  "left_mouth_corner_y",
+  "right_mouth_corner_y",
+  "mouth_width",
+  "mouth_opening",
+  "mouth_center_offset",
+  "total_symmetry_score",
+  "mouth_to_brow_ratio",
+  "eye_to_brow_ratio",
+  "mouth_brow_diff"
+]
