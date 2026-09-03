@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.inference import analyze_image  # noqa: E402
+from src.inference import analyze_image, analyze_video  # noqa: E402
 
 
 app = FastAPI(title="Smile Guard Vision Service", version="1.0.0")
@@ -58,6 +58,25 @@ def download(url, out_path):
         f.write(response.read())
 
 
+def analyze_downloaded(url, media_type="image"):
+    if not url:
+        return None
+    fd, tmp_path = tempfile.mkstemp(suffix=".jpg")
+    try:
+        with os.fdopen(fd, "wb"):
+            download(url, tmp_path)
+        if media_type in ("video", "mp4", "mov", "avi"):
+            return analyze_video(tmp_path)
+        return analyze_image(tmp_path)
+    except Exception:
+        return None
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+
 def insufficient_reference(message="照片不足或无法识别人脸，请重新拍摄正脸照片。"):
     return {
         "possibleFacialPalsy": None,
@@ -79,23 +98,9 @@ def health():
 def analyze(request: AnalyzeRequest, _auth: None = Depends(require_token)):
     results = []
     for item in request.files:
-        if not item.url:
-            continue
-        suffix = ".jpg"
-        fd, tmp_path = tempfile.mkstemp(suffix=suffix)
-        try:
-            with os.fdopen(fd, "wb"):
-                download(item.url, tmp_path)
-            reference = analyze_image(tmp_path)
-            if reference and not reference.get("informationInsufficient"):
-                results.append(reference)
-        except Exception:
-            pass
-        finally:
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
+        reference = analyze_downloaded(item.url, item.type)
+        if reference and not reference.get("informationInsufficient"):
+            results.append(reference)
     if not results:
         return {"aiReference": insufficient_reference(), "doctorResult": None}
     best = max(results, key=lambda r: r.get("riskProbability") or 0.0)
@@ -104,3 +109,20 @@ def analyze(request: AnalyzeRequest, _auth: None = Depends(require_token)):
         % (len(results), best.get("findings", ""))
     )
     return {"aiReference": best, "doctorResult": None}
+
+
+@app.api_route("/analyze_simple", methods=["GET", "POST"])
+def analyze_simple(
+    image_url: str = "",
+    media_type: str = "image",
+    patient_id: str = "",
+    disease_key: str = "facialPalsy",
+    surgery_date: str = "",
+    _auth: None = Depends(require_token),
+):
+    reference = analyze_downloaded(image_url, media_type)
+    if not reference:
+        reference = insufficient_reference()
+    reference["diseaseKey"] = disease_key
+    reference["patientId"] = patient_id
+    return reference
