@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>微笑守护 · 面部分析</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --ink: #1f2937;
+      --muted: #667085;
+      --line: #e4e7ec;
+      --accent: #2f6f9f;
+      --accent-dark: #24587f;
+      --warn: #b54708;
+      --ok: #067647;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      display: flex;
+      justify-content: center;
+      padding: 24px 14px;
+    }
+    main {
+      width: 100%;
+      max-width: 560px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+    }
+    h1 { font-size: 22px; margin: 0 0 6px; }
+    p.lead { color: var(--muted); margin: 0 0 20px; line-height: 1.6; }
+    .label {
+      font-size: 14px;
+      font-weight: 600;
+      margin: 16px 0 8px;
+    }
+    input[type="file"] {
+      width: 100%;
+      padding: 16px;
+      border: 1px dashed #98a2b3;
+      border-radius: 10px;
+      background: #f9fafb;
+      font-size: 14px;
+    }
+    button {
+      width: 100%;
+      margin-top: 18px;
+      padding: 13px;
+      border: 0;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled { background: #98a2b3; cursor: not-allowed; }
+    .hint { color: var(--muted); font-size: 13px; margin-top: 10px; }
+    .result {
+      display: none;
+      margin-top: 20px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fbfcfe;
+    }
+    .result.show { display: block; }
+    .metric {
+      display: flex;
+      justify-content: space-between;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--line);
+      font-size: 15px;
+    }
+    .metric:last-child { border-bottom: 0; }
+    .metric span:first-child { color: var(--muted); }
+    .metric strong { font-weight: 600; }
+    .notice {
+      margin-top: 18px;
+      padding: 12px;
+      border-radius: 10px;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      color: var(--warn);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+    .error {
+      display: none;
+      margin-top: 14px;
+      padding: 12px;
+      border-radius: 10px;
+      background: #fef3f2;
+      border: 1px solid #fecdca;
+      color: #b42318;
+      font-size: 14px;
+    }
+    .error.show { display: block; }
+    @media (max-width: 520px) {
+      main { padding: 18px; }
+      h1 { font-size: 19px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>微笑守护 · 面部分析</h1>
+    <p class="lead">上传一张正面照片，获得 AI 参考分析结果。拍照时请保持正脸放松，可再做抬眉、闭眼、示齿微笑。</p>
+
+    <div class="label">选择照片</div>
+    <input id="fileInput" type="file" accept="image/*">
+    <button id="runBtn" type="button">开始分析</button>
+    <p class="hint">照片仅用于本次分析，分析后不会被长期保存。</p>
+
+    <div id="errorBox" class="error"></div>
+
+    <div id="result" class="result">
+      <div class="metric"><span>是否提示面瘫风险</span><strong id="vPossible">-</strong></div>
+      <div class="metric"><span>面部对称度</span><strong id="vSymmetry">-</strong></div>
+      <div class="metric"><span>HB 参考分级</span><strong id="vHb">-</strong></div>
+      <div class="metric"><span>置信度</span><strong id="vConfidence">-</strong></div>
+      <div id="vFindings" style="margin-top:12px;line-height:1.8;"></div>
+      <div id="vAdvice" style="margin-top:8px;line-height:1.8;color:#344054;"></div>
+    </div>
+
+    <div class="notice">AI 参考结果用于康复筛查，不是诊断结论，也不代表排除面瘫；最终结果请由专业医生面诊确认。</div>
+  </main>
+
+  <script>
+    const btn = document.getElementById("runBtn");
+    const fileInput = document.getElementById("fileInput");
+    const errorBox = document.getElementById("errorBox");
+    const result = document.getElementById("result");
+
+    btn.addEventListener("click", async () => {
+      errorBox.classList.remove("show");
+      result.classList.remove("show");
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) {
+        errorBox.textContent = "请先选择一张照片。";
+        errorBox.classList.add("show");
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = "正在分析...";
+      try {
+        const form = new FormData();
+        form.append("image_file", file);
+        form.append("media_type", file.type.startsWith("video/") ? "video" : "image");
+        form.append("disease_key", "facialPalsy");
+        const res = await fetch("/analyze_upload", { method: "POST", body: form });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || "分析服务暂不可用，请稍后重试。");
+        }
+        document.getElementById("vPossible").textContent =
+          data.possibleFacialPalsy === null ? "-" : (data.possibleFacialPalsy ? "提示风险" : "未见明显风险");
+        document.getElementById("vSymmetry").textContent =
+          data.symmetryScore === null || data.symmetryScore === undefined ? "-" : (data.symmetryScore + " 分");
+        document.getElementById("vHb").textContent = data.hbGrade || "-";
+        document.getElementById("vConfidence").textContent =
+          data.confidence === null || data.confidence === undefined ? "-" : data.confidence;
+        document.getElementById("vFindings").textContent = data.findings || "";
+        document.getElementById("vAdvice").textContent = data.advice || "";
+        result.classList.add("show");
+      } catch (err) {
+        errorBox.textContent = err.message;
+        errorBox.classList.add("show");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "开始分析";
+      }
+    });
+  </script>
+</body>
+</html>
