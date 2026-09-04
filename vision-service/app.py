@@ -10,7 +10,8 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 
@@ -133,20 +134,33 @@ def analyze_simple(
 
 
 @app.post("/analyze_upload")
-def analyze_upload(
-    image_file: UploadFile = File(...),
-    media_type: str = Form("image"),
-    patient_id: str = Form(""),
-    disease_key: str = Form("facialPalsy"),
-    surgery_date: str = Form(""),
-    _auth: None = Depends(require_token),
-):
+async def analyze_upload(request: Request, _auth: None = Depends(require_token)):
+    form = await request.form()
+    image_file = None
+    media_type = "image"
+    patient_id = ""
+    disease_key = "facialPalsy"
+    surgery_date = ""
+    for key, value in form.multi_items():
+        if isinstance(value, UploadFile):
+            if image_file is None:
+                image_file = value
+        elif key == "media_type":
+            media_type = value or "image"
+        elif key == "patient_id":
+            patient_id = value or ""
+        elif key == "disease_key":
+            disease_key = value or "facialPalsy"
+        elif key == "surgery_date":
+            surgery_date = value or ""
+    if image_file is None:
+        raise HTTPException(status_code=422, detail="missing uploaded image file")
     suffix = ".mp4" if media_type in ("video", "mp4", "mov", "avi") else ".jpg"
     fd, tmp_path = tempfile.mkstemp(suffix=suffix)
     reference = None
     try:
         with os.fdopen(fd, "wb") as out:
-            out.write(image_file.file.read())
+            out.write(await image_file.read())
         reference = analyze_local_path(tmp_path, media_type)
     except Exception:
         reference = None
@@ -160,3 +174,9 @@ def analyze_upload(
     reference["diseaseKey"] = disease_key
     reference["patientId"] = patient_id
     return reference
+
+
+@app.get("/", include_in_schema=False)
+def index():
+    page = Path(__file__).resolve().parent / "static" / "analyze.html"
+    return FileResponse(str(page))
